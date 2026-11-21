@@ -11,7 +11,7 @@
   `champion`.
 Decision points: what stays in the notebook; the promotion metric and margin; the training window.
 
-The author's decisions are the constants below. Until MARGIN_MIN and LATENCY_BUDGET_MS are set, the gate
+The author's decisions are the constants below. If MARGIN_MIN or LATENCY_BUDGET_MS is ever None, the gate
 fails closed: train_model still trains, registers and measures, but sets no challenger.
 """
 
@@ -28,9 +28,10 @@ TRAIN_FIRST, TRAIN_LAST, HOLDOUT_MONTH = "2024-01", "2024-03", "2024-04"
 
 # Promotion (decision M2): the new version's holdout MAE must be at least MARGIN_MIN minutes below the
 # champion's (or the v1 baseline's), and its p95 single-row latency at most LATENCY_BUDGET_MS.
-# None = not decided yet: the gate blocks. Set both from the first measured run (eval_report's metadata).
-MARGIN_MIN: float | None = None
-LATENCY_BUDGET_MS: float | None = None
+# None = not decided: the gate blocks. Set by the author from the first measured run (decisions/008):
+# v2 was 0.319 min better than the v1 baseline on 2024-04, at 3.82 ms p95.
+MARGIN_MIN: float | None = 0.20
+LATENCY_BUDGET_MS: float | None = 25.0
 
 FEATURE_COLUMNS = "pickup_zone_id, dropoff_zone_id, pickup_hour, pickup_dow, duration_min"
 

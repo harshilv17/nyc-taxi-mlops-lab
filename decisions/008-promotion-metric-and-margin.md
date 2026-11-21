@@ -2,13 +2,13 @@
 
 Stage: S2 · Date: 2026-11-21 · Author: harshilv17 · Drafted by agent: yes
 
-> **TODO (author):** the margin X and the latency budget are not decided yet, and "Rejected alternative", "Why" and "What would show this was wrong" are for me to write.
+> **TODO (author):** "Choice" is what I decided. "Rejected alternative", "Why" and "What would show this was wrong" are for me to write.
 
 ## Choice
 
 - **Metric: option M2, an absolute margin.** A new version becomes `challenger` only if its holdout MAE is at least **X minutes** below the champion's, or below the v1 baseline's before there is a champion, measured on the same holdout.
 - **And a latency budget:** its p95 single-row predict time must be at most **L ms**.
-- **X = _not decided yet_, L = _not decided yet_.** They are `MARGIN_MIN` and `LATENCY_BUDGET_MS` in `pipelines/src/labpipes/defs/training.py`. While either is unset, the `beats_champion` gate fails closed: the pipeline still trains, registers and measures, but sets no `challenger`.
+- **X = 0.20 minutes (12 s), L = 25 ms.** They are `MARGIN_MIN` and `LATENCY_BUDGET_MS` in `pipelines/src/labpipes/defs/training.py`. If either is ever unset, the `beats_champion` gate fails closed: the pipeline still trains, registers and measures, but sets no `challenger`. Both were set after the first measured run below.
 
 ## Rejected alternative
 

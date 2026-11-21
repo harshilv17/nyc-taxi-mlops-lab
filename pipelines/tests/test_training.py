@@ -95,12 +95,15 @@ def test_the_window_and_holdout_are_what_get_unloaded(lab, monkeypatch):
     assert "median(trip_distance)" in unloads[2] and "''2024-04''" not in unloads[2]  # distances from the window only
 
 
-def test_gate_rules():
+def test_gate_rules(monkeypatch):
     report = {"version": 3, "comparator": "v1 baseline", "mae_min": 3.80, "champion_mae_min": 3.96, "p95_latency_ms": 4.0}
-    assert gate(report)[0] is False  # the module's real numbers are still undecided
-    for margin, budget, ok in [(0.10, 10.0, True), (0.16, 10.0, True), (0.20, 10.0, False), (0.10, 3.9, False)]:
-        training.MARGIN_MIN, training.LATENCY_BUDGET_MS = margin, budget
-        try:
-            assert gate(report)[0] is ok, (margin, budget)
-        finally:
-            training.MARGIN_MIN = training.LATENCY_BUDGET_MS = None
+    for margin, budget, ok in [(0.10, 10.0, True), (0.16, 10.0, True), (0.20, 10.0, False), (0.10, 3.9, False), (None, 10.0, False), (0.10, None, False)]:
+        monkeypatch.setattr(training, "MARGIN_MIN", margin)
+        monkeypatch.setattr(training, "LATENCY_BUDGET_MS", budget)
+        assert gate(report)[0] is ok, (margin, budget)
+
+
+def test_the_authors_numbers_are_set():  # decisions/008: 0.20 min margin, 25 ms p95
+    assert (training.MARGIN_MIN, training.LATENCY_BUDGET_MS) == (0.20, 25.0)
+    first_run = {"version": 1, "comparator": "v1 baseline", "mae_min": 3.637, "champion_mae_min": 3.956, "p95_latency_ms": 3.82}
+    assert gate(first_run)[0] is True
