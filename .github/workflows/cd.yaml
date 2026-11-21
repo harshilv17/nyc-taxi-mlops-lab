@@ -1,0 +1,66 @@
+# S0 CD: after `ci` succeeds on a push to main, deploy that commit's app image on the app host and
+# smoke-test it. Runs on the app host's self-hosted runner (label lab-app) with its instance profile;
+# GHCR pulls use GITHUB_TOKEN (decisions/002-runner-credentials.md).
+#
+# Deploys by SHA tag, never by `main` (decisions/003-image-tag-scheme.md). Rollback: re-run an older
+# `cd` run from the Actions tab; it redeploys that run's commit.
+#
+# workflow_run, not pull_request: the guard below rejects runs from forks and from PRs, so nobody
+# else's code ever reaches this host (make check enforces the guard).
+name: cd
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: cd-app
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: [self-hosted, lab-app]
+    timeout-minutes: 10
+    env:
+      GIT_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Deploy
+        run: |
+          export IMAGE_PREFIX="ghcr.io/${GITHUB_REPOSITORY,,}" IMAGE_TAG="sha-${GIT_SHA::7}"
+          docker compose -f deploy/compose.app.yaml pull
+          docker compose -f deploy/compose.app.yaml up -d --wait --remove-orphans
+      - name: Smoke test
+        run: |
+          web=http://127.0.0.1
+          v=$(curl -fsS --retry 20 --retry-all-errors --retry-delay 3 "$web/version")
+          echo "/version: $v"
+          jq -e --arg sha "$GIT_SHA" '.git_sha == $sha' <<<"$v" >/dev/null ||
+            { echo "running $(jq -r .git_sha <<<"$v"), expected $GIT_SHA" >&2; exit 1; }
+
+          p=$(curl -fsS "$web/predict" -H 'Content-Type: application/json' \
+            -d '{"pickup_zone_id": 132, "dropoff_zone_id": 230, "pickup_datetime": "2024-03-08T17:05:00"}')
+          echo "/predict: $p"
+          jq -e '.duration_minutes > 0' <<<"$p" >/dev/null
+
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$web/predict" -H 'Content-Type: application/json' \
+            -d '{"pickup_zone_id": 9999, "dropoff_zone_id": 230, "pickup_datetime": "2024-03-08T17:05:00"}')
+          echo "/predict with an invalid zone: $code"
+          [[ $code == 422 ]]
