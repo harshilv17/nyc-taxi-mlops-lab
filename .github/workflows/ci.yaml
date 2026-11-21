@@ -53,8 +53,10 @@ jobs:
           context: app
           platforms: linux/arm64
           push: true
-          # The SHA tag is what gets deployed and rolled back to; `main` only points at the newest build.
+          # Full SHA: what CD deploys and rollbacks point at (image_tag == git_sha). sha-<7>: the same
+          # image under a name people can type. main: moves to the newest build; nothing deploys it.
           tags: |
+            ${{ steps.img.outputs.prefix }}/app:${{ github.sha }}
             ${{ steps.img.outputs.prefix }}/app:${{ steps.img.outputs.sha_tag }}
             ${{ steps.img.outputs.prefix }}/app:main
           build-args: GIT_SHA=${{ github.sha }}

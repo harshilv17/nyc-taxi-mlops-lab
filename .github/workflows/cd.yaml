@@ -2,7 +2,8 @@
 # smoke-test it. Runs on the app host's self-hosted runner (label lab-app) with its instance profile;
 # GHCR pulls use GITHUB_TOKEN (decisions/002-runner-credentials.md).
 #
-# Deploys by SHA tag, never by `main` (decisions/003-image-tag-scheme.md). Rollback: re-run an older
+# Deploys by the full-SHA tag, never by `main` or the short tag (decisions/003-image-tag-scheme.md),
+# so /version's image_tag equals its git_sha. Rollback: re-run an older
 # `cd` run from the Actions tab; it redeploys that run's commit.
 #
 # workflow_run, not pull_request: the guard below rejects runs from forks and from PRs, so nobody
@@ -44,7 +45,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Deploy
         run: |
-          export IMAGE_PREFIX="ghcr.io/${GITHUB_REPOSITORY,,}" IMAGE_TAG="sha-${GIT_SHA::7}"
+          export IMAGE_PREFIX="ghcr.io/${GITHUB_REPOSITORY,,}" IMAGE_TAG="$GIT_SHA"
           docker compose -f deploy/compose.app.yaml pull
           docker compose -f deploy/compose.app.yaml up -d --wait --remove-orphans
       - name: Smoke test
@@ -52,8 +53,8 @@ jobs:
           web=http://127.0.0.1
           v=$(curl -fsS --retry 20 --retry-all-errors --retry-delay 3 "$web/version")
           echo "/version: $v"
-          jq -e --arg sha "$GIT_SHA" '.git_sha == $sha' <<<"$v" >/dev/null ||
-            { echo "running $(jq -r .git_sha <<<"$v"), expected $GIT_SHA" >&2; exit 1; }
+          jq -e --arg sha "$GIT_SHA" '.git_sha == $sha and .image_tag == $sha' <<<"$v" >/dev/null ||
+            { echo "running git_sha $(jq -r .git_sha <<<"$v") from tag $(jq -r .image_tag <<<"$v"), expected $GIT_SHA for both" >&2; exit 1; }
 
           p=$(curl -fsS "$web/predict" -H 'Content-Type: application/json' \
             -d '{"pickup_zone_id": 132, "dropoff_zone_id": 230, "pickup_datetime": "2024-03-08T17:05:00"}')
