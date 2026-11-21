@@ -18,9 +18,11 @@ from ..resources import DataBucket
 
 # One month, end to end. zone_hour_stats is unpartitioned and rebuilt in full, so it is in the run: a
 # month that fails a blocking check upstream never reaches the mart. taxi_zones is small and reloaded.
+# trip_features (S2) is built from stg_trips in the same run, and its feature_contract check blocks
+# whatever would train on it.
 ingest_month = dg.define_asset_job(
     "ingest_month",
-    selection=dg.AssetSelection.assets("taxi_zones", "trip_files", "raw_trips", "stg_trips", "zone_hour_stats"),
+    selection=dg.AssetSelection.assets("taxi_zones", "trip_files", "raw_trips", "stg_trips", "zone_hour_stats", "trip_features"),
 )
 
 

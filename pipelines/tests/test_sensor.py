@@ -64,7 +64,7 @@ def test_the_job_runs_from_trip_files_to_the_mart(monkeypatch):
 
     job = defs.resolve_job_def("ingest_month")
     keys = {k.to_user_string() for k in job.asset_layer.executable_asset_keys}
-    assert keys == {"taxi_zones", "trip_files", "raw_trips", "stg_trips", "zone_hour_stats"}
+    assert keys == {"taxi_zones", "trip_files", "raw_trips", "stg_trips", "zone_hour_stats", "trip_features"}
     assert "trip_files_sensor" in {s.name for s in defs.sensors or []}
     assert ingest_month.name == "ingest_month"
 
@@ -72,6 +72,7 @@ def test_the_job_runs_from_trip_files_to_the_mart(monkeypatch):
 def test_a_drifted_file_stops_the_run_before_anything_is_copied():
     from fakes import LOG, fake_redshift, schema_2025
 
+    from labpipes.defs.features import trip_features
     from labpipes.defs.marts import zone_hour_stats
     from labpipes.defs.raw_trips import raw_trips
     from labpipes.defs.schema_check import schema_contract
@@ -81,7 +82,7 @@ def test_a_drifted_file_stops_the_run_before_anything_is_copied():
 
     bucket = fake_bucket({"2025-01": ("a", schema_2025())})  # cbd_congestion_fee appended: the contract has 19 columns
     defs = dg.Definitions(
-        assets=[taxi_zones, trip_files, raw_trips, stg_trips, zone_hour_stats],
+        assets=[taxi_zones, trip_files, raw_trips, stg_trips, zone_hour_stats, trip_features],
         asset_checks=[schema_contract],
         jobs=[ingest_month],
         resources={"redshift": fake_redshift(), "data_bucket": bucket},

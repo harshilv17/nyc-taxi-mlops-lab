@@ -6,6 +6,7 @@ import pytest
 from fakes import FakeRedshift, fake_bucket
 
 from labpipes.contracts import trips_schema
+from labpipes.defs.features import trip_features
 from labpipes.defs.marts import zone_hour_stats
 from labpipes.defs.quality import ERROR, RULES, WARN, evaluate, stg_trips_quality
 from labpipes.defs.raw_trips import raw_trips
@@ -96,7 +97,7 @@ class QualityRedshift(FakeRedshift):
 
 def run_job(metrics, dups=0):
     defs = dg.Definitions(
-        assets=[taxi_zones, trip_files, raw_trips, stg_trips, zone_hour_stats],
+        assets=[taxi_zones, trip_files, raw_trips, stg_trips, zone_hour_stats, trip_features],
         asset_checks=[schema_contract, stg_trips_quality],
         jobs=[ingest_month],
         resources={
