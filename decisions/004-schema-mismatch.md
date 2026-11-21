@@ -2,6 +2,8 @@
 
 Stage: S1 · Date: 2026-11-21 · Author: harshilv17 · Drafted by agent: yes
 
+> **TODO (author):** only "Choice" comes from my decisions (A1, B2, C1). "Rejected alternative" and "Why" were guessed by the agent, so replace them with what I actually weighed before relying on this record.
+
 ## Choice
 
 The blocking `schema_contract` check on `trip_files` compares a landed file's Parquet footer with `contracts/trips.schema.yaml` position by position, before anything is copied:
