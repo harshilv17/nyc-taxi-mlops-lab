@@ -71,3 +71,10 @@ module "grafana_secret" {
   source = "../modules/secret"
   name   = "lab/grafana"
 }
+
+# Langfuse project keys for the app's tracing (S6): {"host", "public_key", "secret_key"}. Container only;
+# the value is put from the laptop with `aws secretsmanager put-secret-value`.
+module "langfuse_secret" {
+  source = "../modules/secret"
+  name   = "lab/langfuse"
+}
