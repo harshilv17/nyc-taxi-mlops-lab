@@ -1,9 +1,25 @@
 # Service level objectives for the ride app (S5, decision 013). rules/slo.rules.yaml computes them.
 # One entry per SLO: what's measured (the SLI, from contracts/metrics.yaml), the objective, why that
 # number, and the alert that tells you it's being missed.
+#
+# Every SLI is measured inside the app, over all /predict requests on both colours. Error budget =
+# 1 - objective. Alert for all three: SLOFastBurn (severity page) when the burn rate is above 14.4 over
+# both the last hour and the last 5 minutes.
 slos:
   - name: predict-availability
-    sli:
-    objective:
-    why:
-    alert:
+    sli: share of /predict responses that aren't 5xx (lab_http_requests_total{route="/predict"}; 4xx are the rider's input, not ours)
+    objective: 0.999
+    why: "TODO (author). Measured 2026-11-22: 942 of 942 /predict answered 200 in 10 min of steady traffic."
+    alert: SLOFastBurn{slo="predict-availability"}
+
+  - name: predict-latency
+    sli: share of /predict answered inside the app in 25 ms or less (lab_http_request_duration_seconds, bucket le="0.025")
+    objective: 0.99
+    why: "TODO (author). Measured 2026-11-22: p50 7.7 ms, p95 14 ms, p99 23 ms; 99.8% under 25 ms, 100% under 50 ms."
+    alert: SLOFastBurn{slo="predict-latency"}
+
+  - name: predict-model-answered
+    sli: share of quotes from the model rather than the static-median fallback (lab_predictions_total{source="model"}); the app answers 200 either way
+    objective: 0.995
+    why: "TODO (author). Measured 2026-11-22: 942 of 942 quotes from champion v2."
+    alert: SLOFastBurn{slo="predict-model-answered"}

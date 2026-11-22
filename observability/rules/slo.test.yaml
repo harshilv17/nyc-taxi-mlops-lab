@@ -1,0 +1,93 @@
+# promtool unit tests for slo.rules.yaml (`make check` runs them). Steady traffic is 60 /predict a
+# minute (1 per second). An outage pages; a short spike doesn't.
+rule_files:
+  - slo.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # serving-champion is down for 20 minutes after an hour of normal traffic: the app still answers 200,
+  # every quote is the fallback. Model-answered pages; availability doesn't move.
+  - interval: 1m
+    input_series:
+      - series: 'lab_predictions_total{source="model", alias="champion", version="2"}'
+        values: '0+60x60 3600x20'
+      - series: 'lab_predictions_total{source="fallback", alias="", version=""}'
+        values: '0x60 0+60x20'
+      - series: 'lab_http_requests_total{route="/predict", method="POST", code="200"}'
+        values: '0+60x80'
+    alert_rule_test:
+      - eval_time: 58m
+        alertname: SLOFastBurn
+        exp_alerts: []
+      # 68m, not earlier: the alert reads the burn-rate rules, which can lag a minute (group order), and at
+      # 65m the hour's burn is only ~13.6x. At 68m it's ~23x.
+      - eval_time: 68m
+        alertname: SLOFastBurn
+        exp_alerts:
+          - exp_labels:
+              alertname: SLOFastBurn
+              slo: predict-model-answered
+              severity: page
+            exp_annotations:
+              summary: "predict-model-answered is burning its error budget more than 14.4x too fast (1 h and 5 min)"
+              runbook: observability/slo.yaml
+    promql_expr_test:
+      - expr: slo:sli:rate1h{slo="predict-availability"}
+        eval_time: 68m
+        exp_samples:
+          - labels: 'slo:sli:rate1h{slo="predict-availability"}'
+            value: 1
+
+  # Every /predict answers 500 for 10 minutes: availability pages.
+  - interval: 1m
+    input_series:
+      - series: 'lab_http_requests_total{route="/predict", method="POST", code="200"}'
+        values: '0+60x60 3600x10'
+      - series: 'lab_http_requests_total{route="/predict", method="POST", code="500"}'
+        values: '0x60 0+60x10'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: SLOFastBurn
+        exp_alerts:
+          - exp_labels:
+              alertname: SLOFastBurn
+              slo: predict-availability
+              severity: page
+            exp_annotations:
+              summary: "predict-availability is burning its error budget more than 14.4x too fast (1 h and 5 min)"
+              runbook: observability/slo.yaml
+
+  # A short spike: for one minute every /predict is slower than 25 ms. The 5-minute burn jumps (25x with rate()'s extrapolation)
+  # but the hour's stays at about 1.7x, so it doesn't page. Then it recovers.
+  - interval: 1m
+    input_series:
+      - series: 'lab_http_request_duration_seconds_bucket{route="/predict", method="POST", le="0.025"}'
+        values: '0+60x60 3600 3660+60x10'
+      - series: 'lab_http_request_duration_seconds_count{route="/predict", method="POST"}'
+        values: '0+60x71'
+    alert_rule_test:
+      - eval_time: 62m
+        alertname: SLOFastBurn
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: SLOFastBurn
+        exp_alerts: []
+    promql_expr_test:
+      - expr: slo:burn_rate:rate5m{slo="predict-latency"} > 14.4
+        eval_time: 62m
+        exp_samples:
+          - labels: 'slo:burn_rate:rate5m{slo="predict-latency"}'
+            value: 25
+
+  # A short availability spike: 5% of /predict answer 500 for one minute. No page.
+  - interval: 1m
+    input_series:
+      - series: 'lab_http_requests_total{route="/predict", method="POST", code="200"}'
+        values: '0+60x60 3657 3717+60x10'
+      - series: 'lab_http_requests_total{route="/predict", method="POST", code="500"}'
+        values: '0x60 3x11'
+    alert_rule_test:
+      - eval_time: 62m
+        alertname: SLOFastBurn
+        exp_alerts: []

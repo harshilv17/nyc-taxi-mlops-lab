@@ -2,4 +2,101 @@
 # Prometheus rule format: https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/
 # Metric names are contracts/metrics.yaml's. `make check` runs promtool on this file and on any
 # *.test.yaml next to it.
-groups: []
+#
+# Every SLO gets the same series, told apart by the `slo` label (observability/slo.yaml):
+#   slo:error_ratio:rate5m / rate1h   share of bad events
+#   slo:sli:rate1h                    1 - error ratio over the last hour (the dashboard's SLI panel)
+#   slo:burn_rate:rate5m / rate1h     error ratio / error budget (1 = spending exactly the budget)
+#   slo:objective                     the objective, for the dashboard
+# Sums run over both colours and both hosts' series; rate() handles the counter resets of a deploy.
+# With no /predict traffic the ratios are empty, so nothing pages. No 5xx series at all counts as 0 errors.
+groups:
+  - name: slo-predict-availability
+    interval: 1m
+    rules:
+      - record: slo:error_ratio:rate5m
+        labels: {slo: predict-availability}
+        expr: |
+          (sum(rate(lab_http_requests_total{route="/predict", code=~"5.."}[5m])) or vector(0))
+            / sum(rate(lab_http_requests_total{route="/predict"}[5m]))
+      - record: slo:error_ratio:rate1h
+        labels: {slo: predict-availability}
+        expr: |
+          (sum(rate(lab_http_requests_total{route="/predict", code=~"5.."}[1h])) or vector(0))
+            / sum(rate(lab_http_requests_total{route="/predict"}[1h]))
+      - record: slo:objective
+        labels: {slo: predict-availability}
+        expr: vector(0.999)
+      - record: slo:burn_rate:rate5m
+        labels: {slo: predict-availability}
+        expr: slo:error_ratio:rate5m{slo="predict-availability"} / 0.001
+      - record: slo:burn_rate:rate1h
+        labels: {slo: predict-availability}
+        expr: slo:error_ratio:rate1h{slo="predict-availability"} / 0.001
+
+  - name: slo-predict-latency
+    interval: 1m
+    rules:
+      # Bad = a /predict that took longer than 25 ms inside the app (bucket le="0.025").
+      - record: slo:error_ratio:rate5m
+        labels: {slo: predict-latency}
+        expr: |
+          1 - sum(rate(lab_http_request_duration_seconds_bucket{route="/predict", le="0.025"}[5m]))
+            / sum(rate(lab_http_request_duration_seconds_count{route="/predict"}[5m]))
+      - record: slo:error_ratio:rate1h
+        labels: {slo: predict-latency}
+        expr: |
+          1 - sum(rate(lab_http_request_duration_seconds_bucket{route="/predict", le="0.025"}[1h]))
+            / sum(rate(lab_http_request_duration_seconds_count{route="/predict"}[1h]))
+      - record: slo:objective
+        labels: {slo: predict-latency}
+        expr: vector(0.99)
+      - record: slo:burn_rate:rate5m
+        labels: {slo: predict-latency}
+        expr: slo:error_ratio:rate5m{slo="predict-latency"} / 0.01
+      - record: slo:burn_rate:rate1h
+        labels: {slo: predict-latency}
+        expr: slo:error_ratio:rate1h{slo="predict-latency"} / 0.01
+
+  - name: slo-predict-model-answered
+    interval: 1m
+    rules:
+      # Bad = a quote from the static-median fallback instead of the model (the app still answers 200).
+      - record: slo:error_ratio:rate5m
+        labels: {slo: predict-model-answered}
+        expr: |
+          1 - sum(rate(lab_predictions_total{source="model"}[5m]))
+            / sum(rate(lab_predictions_total[5m]))
+      - record: slo:error_ratio:rate1h
+        labels: {slo: predict-model-answered}
+        expr: |
+          1 - sum(rate(lab_predictions_total{source="model"}[1h]))
+            / sum(rate(lab_predictions_total[1h]))
+      - record: slo:objective
+        labels: {slo: predict-model-answered}
+        expr: vector(0.995)
+      - record: slo:burn_rate:rate5m
+        labels: {slo: predict-model-answered}
+        expr: slo:error_ratio:rate5m{slo="predict-model-answered"} / 0.005
+      - record: slo:burn_rate:rate1h
+        labels: {slo: predict-model-answered}
+        expr: slo:error_ratio:rate1h{slo="predict-model-answered"} / 0.005
+
+  - name: slo-shared
+    interval: 1m
+    rules:
+      - record: slo:sli:rate1h
+        expr: 1 - slo:error_ratio:rate1h
+
+  - name: slo-alerts
+    interval: 1m
+    rules:
+      # Fast burn, two windows: the last hour says it's sustained, the last 5 minutes say it's still
+      # happening (so the page stops soon after the fix). 14.4x spends 2% of a 30-day budget in an hour.
+      - alert: SLOFastBurn
+        expr: slo:burn_rate:rate1h > 14.4 and slo:burn_rate:rate5m > 14.4
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.slo }} is burning its error budget more than 14.4x too fast (1 h and 5 min)"
+          runbook: observability/slo.yaml
