@@ -1,0 +1,113 @@
+# Promote (S3): move the MLflow `champion` alias to the current `challenger`. The only code allowed to move
+# champion (contracts/mlflow.yaml). Runs in the `production` environment, so it waits for a required
+# reviewer's approval before it starts. Start it from the Actions tab or with
+#   gh workflow run promote.yaml                 # promote whatever @challenger is now
+#   gh workflow run promote.yaml -f version=2    # same, but stop unless @challenger is still version 2
+#
+# What may be promoted: only the version holding @challenger, i.e. one the pipeline evaluated and that
+# passed its beats_champion gate. A version you name must be that one.
+# How serving picks it up (decisions/010): POST /reload on serving-champion (deploy/web.sh reload). The
+# old model answers until the new one has loaded; the job fails unless serving then reports the new version.
+# The outgoing champion is recorded as tags on the new version (replaced_champion, promoted_by, promoted_run)
+# and in the run summary.
+#
+# workflow_dispatch only: just people with write access can start it, and a fork's pull request can't.
+name: promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Expected @challenger version (empty: whatever @challenger is now)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: [self-hosted, lab-app]
+    environment: production
+    timeout-minutes: 15
+    env:
+      MLFLOW: ${{ vars.MLFLOW_TRACKING_URI }}
+      MODEL: trip-duration  # contracts/mlflow.yaml registered_model
+      WANT: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Move champion to the challenger
+        id: promote
+        run: |
+          api=$MLFLOW/api/2.0/mlflow
+          alias() { # ALIAS: the version JSON it points at, or nothing
+            curl -sS --get "$api/registered-models/alias" --data-urlencode "name=$MODEL" --data-urlencode "alias=$1" |
+              jq -c '.model_version // empty'
+          }
+          tag() { # VERSION KEY VALUE
+            jq -n --arg n "$MODEL" --arg v "$1" --arg k "$2" --arg val "$3" '{name: $n, version: $v, key: $k, value: $val}' |
+              curl -fsS -X POST "$api/model-versions/set-tag" -H 'Content-Type: application/json' -d @- >/dev/null
+          }
+
+          challenger=$(alias challenger)
+          [[ -n $challenger ]] || { echo "no @challenger: nothing the pipeline has passed to promote" >&2; exit 1; }
+          new=$(jq -r .version <<<"$challenger")
+          if [[ -n $WANT && $WANT != "$new" ]]; then
+            echo "@challenger is version $new, not $WANT: only the challenger can be promoted" >&2; exit 1
+          fi
+          # The pipeline evaluated it: eval_report's tags are on the version.
+          for k in mae_min p95_latency_ms champion_mae_min; do
+            jq -e --arg k "$k" '[.tags[]? | select(.key == $k)] | length == 1' <<<"$challenger" >/dev/null ||
+              { echo "version $new has no $k tag: the pipeline didn't evaluate it" >&2; exit 1; }
+          done
+
+          old=$(alias champion | jq -r '.version // empty')
+          old=${old:-none}
+          if [[ $old == "$new" ]]; then echo "version $new is already champion"; else
+            tag "$new" replaced_champion "$old"
+            tag "$new" promoted_by "$GITHUB_ACTOR"
+            tag "$new" promoted_run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            jq -n --arg n "$MODEL" --arg v "$new" '{name: $n, alias: "champion", version: $v}' |
+              curl -fsS -X POST "$api/registered-models/alias" -H 'Content-Type: application/json' -d @- >/dev/null
+          fi
+          echo "champion: $old -> $new"
+          mae() { jq -r --arg k "$1" '.tags[] | select(.key == $k) | .value' <<<"$challenger"; }
+          {
+            echo "### champion: v$old -> v$new"
+            echo "holdout MAE $(mae mae_min) min vs $(mae champion_mae_min) (what the pipeline compared it with), p95 $(mae p95_latency_ms) ms"
+            echo "To go back: v$old (recorded as replaced_champion on v$new)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "version=$new" >> "$GITHUB_OUTPUT"
+
+      - name: Serving reloads it
+        env:
+          NEW: ${{ steps.promote.outputs.version }}
+        run: |
+          r=$(deploy/web.sh reload champion)
+          echo "reload: $r"
+          jq -e --arg v "$NEW" '.version == $v' <<<"$r" >/dev/null ||
+            { echo "serving-champion is on $(jq -r .version <<<"$r"), expected $NEW" >&2; exit 1; }
+
+      - name: Riders get it
+        env:
+          NEW: ${{ steps.promote.outputs.version }}
+        run: |
+          # Traefik's health check has to see the champion container healthy before traffic reaches it.
+          for _ in $(seq 1 30); do
+            p=$(curl -fsS -m 5 http://127.0.0.1/predict -H 'Content-Type: application/json' \
+              -d '{"pickup_zone_id": 132, "dropoff_zone_id": 230, "pickup_datetime": "2024-03-08T17:05:00"}') || p='{}'
+            jq -e --arg v "$NEW" '.model.alias == "champion" and .model.version == $v and .duration_minutes > 0' <<<"$p" >/dev/null &&
+              { echo "/predict: $p"; exit 0; }
+            sleep 2
+          done
+          echo "/predict still answers with ${p:-nothing}, expected champion v$NEW" >&2
+          exit 1
+
+      - name: Status
+        if: always()
+        run: deploy/web.sh status
