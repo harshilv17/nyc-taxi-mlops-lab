@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -172,14 +173,18 @@ ZONE_ARGUMENTS = {"predict_duration": ("pickup_zone", "dropoff_zone"), "query_zo
 
 def allow_tool_call(name: str, arguments: dict, question: str) -> tuple[bool, str]:
     """Whether one tool call the model asked for may run, and what to say if not: the tool must be in
-    ALLOWED_TOOLS, and every zone it names must appear in the rider's own question (so text injected into
+    ALLOWED_TOOLS, and every zone it names must share a word with the rider's own question (so text injected into
     a wiki page can't steer a lookup to somewhere the rider never asked about)."""
     if name not in ALLOWED_TOOLS:
         return False, f"{name} isn't an allowed tool"
     asked = question.lower()
+    words = set(re.findall(r"[a-z0-9]+", asked))
     for arg in ZONE_ARGUMENTS.get(name, ()):
         zone = str(arguments.get(arg, "")).strip().lower()
-        if not zone or zone not in asked:
+        # Decision 017: a word of 4+ letters from the zone's name must be a word of the question ("times" in
+        # "Times Square" for "Times Sq/Theatre District"). A zone with no such word must appear whole.
+        key_words = {w for w in re.findall(r"[a-z0-9]+", zone) if len(w) >= 4 and w.isalpha()}
+        if not zone or not (key_words & words if key_words else zone in asked):
             return False, f"{arg} {arguments.get(arg)!r} isn't in the rider's question"
     return True, ""
 

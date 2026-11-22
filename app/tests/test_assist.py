@@ -121,3 +121,13 @@ def test_tool_calls_must_name_zones_the_rider_asked_about():
     assert not ok and "Pier 76" in why
     assert not a.allow_tool_call("delete_everything", {}, q)[0]
     assert not a.allow_tool_call("predict_duration", {"pickup_zone": "JFK Airport"}, q)[0]  # no dropoff: refused, not guessed
+
+
+def test_a_paraphrased_zone_passes_but_an_unrelated_one_doesnt():
+    from rideapp import assistant as a
+
+    q = "How long from JFK Airport to Times Square at 5pm on a Friday?"
+    args = {"pickup_zone": "JFK Airport", "dropoff_zone": "Times Sq/Theatre District", "hour": 17, "day_of_week": "friday"}
+    assert a.allow_tool_call("predict_duration", args, q) == (True, "")
+    assert not a.allow_tool_call("predict_duration", {**args, "dropoff_zone": "Pier 76"}, q)[0]
+    assert not a.allow_tool_call("query_zone_stats", {"zone": "Harbor Hills", "metric": "trip_count"}, q)[0]
