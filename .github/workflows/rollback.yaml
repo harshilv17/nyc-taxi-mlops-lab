@@ -1,0 +1,45 @@
+# Rollback (S3): send app traffic back to the other colour. No build and no deploy: the previous version
+# is still running there (cd.yaml keeps it). Start it from the Actions tab (Run workflow) or with
+#   gh workflow run rollback.yaml
+# It checks the other colour first (deploy/web.sh smoke), so it never switches to something broken, and
+# prints how long the switch took.
+#
+# workflow_dispatch only: just people with write access can start it, and a fork's pull request can't.
+name: rollback
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-colours  # shared with cd.yaml
+  cancel-in-progress: false
+
+jobs:
+  switch-back:
+    runs-on: [self-hosted, lab-app]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Switch to the other colour
+        run: |
+          live=$(deploy/web.sh live)
+          [[ $live == blue || $live == green ]] || { echo "no live colour yet: nothing to roll back to" >&2; exit 1; }
+          other=$([[ $live == blue ]] && echo green || echo blue)
+          tag=$(deploy/web.sh tag "$other")
+          [[ $tag != none ]] || { echo "$other isn't running: nothing to roll back to" >&2; exit 1; }
+          deploy/web.sh smoke "$other"
+          start=$(date +%s.%N)
+          deploy/web.sh switch "$other"
+          for _ in $(seq 1 15); do
+            served=$(curl -fsS -m 3 http://127.0.0.1/version | jq -r .image_tag) || served=
+            [[ $served == "$tag" ]] && break
+            sleep 1
+          done
+          [[ $served == "$tag" ]] || { echo "traffic still on ${served:-nothing}, expected $tag" >&2; exit 1; }
+          echo "rolled back: $live -> $other ($tag) in $(echo "$(date +%s.%N) - $start" | bc) s"
+      - name: Status
+        if: always()
+        run: deploy/web.sh status
