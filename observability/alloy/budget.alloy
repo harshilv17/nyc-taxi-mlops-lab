@@ -12,7 +12,13 @@ declare "host" {
 	prometheus.relabel "rules" {
 		forward_to = argument.forward_to.value
 
-		// Your rules for the host's series: CPU? memory? disk? which network devices?
+		// Decision 014 (B2): drop the node_exporter families no dashboard, SLO or incident uses. Keeps
+		// cpu, memory, disk, filesystem, network, pressure and the rest.
+		rule {
+			source_labels = ["__name__"]
+			regex         = "node_(scrape|xfs|netstat|sockstat|timex|softnet|nf|schedstat|cooling)_.*"
+			action        = "drop"
+		}
 	}
 
 	export "receiver" {
@@ -26,7 +32,19 @@ declare "containers" {
 	prometheus.relabel "rules" {
 		forward_to = argument.forward_to.value
 
-		// Your rules for the containers' series: which metrics, and which labels change on every deploy?
+		// Decision 014 (B2): container_fs_* was 1,124 of 3,252 series and nothing reads it.
+		rule {
+			source_labels = ["__name__"]
+			regex         = "container_fs_.*"
+			action        = "drop"
+		}
+
+		// New on every deploy: the container id, the image tag and Compose's container_label_* (config hash,
+		// image digest, ...; the rest repeat `name`). `name` stays the same across deploys and keeps series apart.
+		rule {
+			regex  = "id|image|container_label_.*"
+			action = "labeldrop"
+		}
 	}
 
 	export "receiver" {
@@ -40,7 +58,13 @@ declare "services" {
 	prometheus.relabel "rules" {
 		forward_to = argument.forward_to.value
 
-		// Your rules for the services' series (contracts/metrics.yaml, Traefik, runtime metrics).
+		// Decision 014 (B2): keep contracts/metrics.yaml's lab_* and Traefik's, and `up`; drop the
+		// client libraries' runtime metrics, the scraper's own bookkeeping and prometheus_client's *_created.
+		rule {
+			source_labels = ["__name__"]
+			regex         = "(python|go|process|scrape)_.*|.*_created"
+			action        = "drop"
+		}
 	}
 
 	export "receiver" {
