@@ -114,7 +114,7 @@ async def connect() -> psycopg.AsyncConnection:
                                                  password=s["password"], dbname="rag", autocommit=True, connect_timeout=5)
 
 
-TOP_K = 0  # decision 015; 0 = not decided, and retrieval returns nothing
+TOP_K = 3  # decision 015; 0 = not decided, and retrieval returns nothing
 
 # Cosine distance (<=>), the operator the pgvector index is built for (defs/rag.py). score = 1 - distance.
 RETRIEVE_SQL = """

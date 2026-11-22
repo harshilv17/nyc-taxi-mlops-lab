@@ -22,8 +22,8 @@ from ..chunking import chunk_markdown
 from ..resources import LlmEmbed, RagStore, WikiApi
 
 # Decision 015: chunk size and overlap, in estimated tokens (labpipes/chunking.py). None = not decided.
-CHUNK_MAX_TOKENS: int | None = None
-CHUNK_OVERLAP_TOKENS: int | None = None
+CHUNK_MAX_TOKENS: int | None = 250
+CHUNK_OVERLAP_TOKENS: int | None = 50
 # Decision 016: the vector index, "hnsw" or "ivfflat". None = not decided (retrieval still works, by a
 # sequential scan, which is fine at a few hundred chunks).
 VECTOR_INDEX: str | None = None
