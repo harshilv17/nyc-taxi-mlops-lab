@@ -44,4 +44,6 @@ Came back by themselves at Start Lab: the three hosts (`running`, same Elastic I
 3. The platform host's boot unit, `lab-platform-boot.service` (`deploy/platform-boot.sh`, installed with `deploy/platform-boot.sh install`): row 4. It waits until RDS accepts connections, then restarts Dagster's code server, webserver and daemon if the code location isn't loaded, at most 3 times. Its log: `journalctl -u lab-platform-boot` on the host.
 4. Row 3 needs nothing.
 
+Proved (S4 step 4, 2026-11-22): Redshift paused, `aws ec2 reboot-instances` on the platform host at 07:43:11, nothing touched. Booted 07:43:29; boot unit started 07:43:37; runner online 07:44:01; boot unit "Dagster code location loaded" at 07:44:46 (81 s after boot); status run 44999681661 green at 07:45:46 with RDS `available`, Redshift `paused`. The unit restarted Dagster once (07:43:42, 5 s after it started) although RDS was up: the webserver hadn't loaded yet, so it read "not loaded".
+
 Left as steps: Start Lab and credentials (no API); the notebook (nothing but exploration needs it, and it costs while running).

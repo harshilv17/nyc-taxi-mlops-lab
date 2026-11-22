@@ -64,3 +64,10 @@ module "wiki_secret" {
   source = "../modules/secret"
   name   = "lab/wiki"
 }
+
+# Grafana Cloud remote write for Alloy (S5): {"url", "user", "token"}. Container only; the value is put
+# from the laptop with `aws secretsmanager put-secret-value`, so it never sits in state or GitHub.
+module "grafana_secret" {
+  source = "../modules/secret"
+  name   = "lab/grafana"
+}
