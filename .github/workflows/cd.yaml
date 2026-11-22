@@ -11,7 +11,8 @@
 # GITHUB_TOKEN (decisions/002). Deploys by full-SHA tag (decisions/003).
 #
 # workflow_run, not pull_request: the guard below rejects runs from forks and from PRs, so nobody
-# else's code ever reaches this host (make check enforces the guard).
+# else's code ever reaches this host (make check enforces the guard). workflow_dispatch (S5: a burst of
+# deploys, `gh workflow run cd.yaml`) deploys main's HEAD; only people with write access can start it.
 name: cd
 
 on:
@@ -19,6 +20,7 @@ on:
     workflows: [ci]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -31,18 +33,19 @@ concurrency:
 jobs:
   deploy:
     if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: [self-hosted, lab-app]
     timeout-minutes: 15
     env:
-      GIT_SHA: ${{ github.event.workflow_run.head_sha }}
+      GIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       LLM_HOST: ${{ vars.LLM_HOST }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
@@ -64,7 +67,8 @@ jobs:
           echo "live: $live -> deploying $GIT_SHA to $idle (blue=$BLUE_TAG green=$GREEN_TAG)"
           docker compose -f deploy/compose.web.yaml pull "app-$idle"
           # --remove-orphans: the first deploy with this stack replaces S0's single `app` container.
-          docker compose -f deploy/compose.web.yaml up -d --wait --no-deps --remove-orphans "app-$idle"
+          # --force-recreate: every deploy is a fresh container, even when the idle colour already runs this image.
+          docker compose -f deploy/compose.web.yaml up -d --wait --no-deps --remove-orphans --force-recreate "app-$idle"
           echo "live=$live" >> "$GITHUB_OUTPUT"
           echo "idle=$idle" >> "$GITHUB_OUTPUT"
 
