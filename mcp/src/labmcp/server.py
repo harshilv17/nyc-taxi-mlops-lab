@@ -104,12 +104,29 @@ Metric = Literal["trip_count", "median_duration_min", "p90_duration_min"]
 
 @mcp.tool(description="Predict the duration in minutes of a yellow-taxi trip between two NYC TLC taxi zones, using the champion model.")
 async def predict_duration(pickup_zone: Zone, dropoff_zone: Zone, hour: Hour, day_of_week: Day) -> dict:
-    raise NotImplementedError("S7: predict_duration isn't built yet")
+    pickup, dropoff = zone_id(pickup_zone), zone_id(dropoff_zone)
+    # features.yaml's encodings: TLC LocationIDs, the hour as is, and pickup_dow 0 = Sunday.
+    out = await champion("POST", "/predict", {"pickup_zone_id": pickup, "dropoff_zone_id": dropoff,
+                                              "pickup_hour": hour, "pickup_dow": DAYS.index(day_of_week)})
+    return {"duration_minutes": out["duration_minutes"], "pickup_zone_id": pickup, "dropoff_zone_id": dropoff,
+            "hour": hour, "day_of_week": day_of_week, "model": out["model"]}
 
 
 @mcp.tool(description="Historical trip statistics for one pickup zone from the zone_hour_stats mart.")
 def query_zone_stats(zone: Zone, metric: Metric, hour: Annotated[int | None, Field(ge=0, le=23, description="Optional: restrict to one pickup hour.")] = None) -> dict:
-    raise NotImplementedError("S7: query_zone_stats isn't built yet")
+    zid = zone_id(zone)
+    if metric not in METRICS:  # the column name below comes from this fixed list, never from the caller's text
+        raise ValueError(f"unknown metric {metric!r}")
+    sql = f"select pickup_hour, {metric} as value, first_month, last_month from marts.zone_hour_stats where pickup_zone_id = :zid"
+    params: dict[str, object] = {"zid": zid}
+    if hour is not None:
+        sql, params["hour"] = sql + " and pickup_hour = :hour", hour
+    rows = Warehouse().query(sql + " order by pickup_hour", params)
+    if not rows:
+        raise ValueError(f"no statistics for zone {zone!r}" + (f" at hour {hour}" if hour is not None else ""))
+    num = (lambda v: int(float(v))) if metric == "trip_count" else float
+    return {"zone": zone, "zone_id": zid, "metric": metric, "months": f"{rows[0]['first_month']}..{rows[0]['last_month']}",
+            "rows": [{"hour": int(r["pickup_hour"]), "value": num(r["value"]) if r["value"] is not None else None} for r in rows]}
 
 
 @mcp.custom_route("/healthz", methods=["GET"])
