@@ -99,3 +99,12 @@ def test_tracing_when_configured(fake_llm, monkeypatch, tmp_path):
     assert all(s["parentSpanId"] == root["spanId"] for s in spans[:-1])
     assert attrs[1]["gen_ai.usage.input_tokens"] == "300" and attrs[1]["gen_ai.usage.output_tokens"] == "9"
     assert attrs[2]["langfuse.trace.name"] == "assist" and "Harbor Line" in attrs[2]["langfuse.observation.input"]
+
+
+def test_prompt_prefix_is_fixed_and_excerpts_go_in_the_user_turn():
+    from rideapp import assistant as a
+
+    c = a.Chunk(id="c1", page_id="p1", title="Airport fees", content="Airport fees > JFK\n\nIt is $4.50.", score=0.9)
+    with_wiki, without = a.build_messages("JFK fee?", [c]), a.build_messages("JFK fee?", [])
+    assert with_wiki[0] == without[0] == {"role": "system", "content": a.SYSTEM_PROMPT}  # cacheable prefix
+    assert "It is $4.50." in with_wiki[1]["content"] and with_wiki[1]["content"].endswith("Question: JFK fee?")
