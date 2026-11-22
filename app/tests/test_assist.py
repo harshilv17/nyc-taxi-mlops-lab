@@ -108,3 +108,16 @@ def test_prompt_prefix_is_fixed_and_excerpts_go_in_the_user_turn():
     with_wiki, without = a.build_messages("JFK fee?", [c]), a.build_messages("JFK fee?", [])
     assert with_wiki[0] == without[0] == {"role": "system", "content": a.SYSTEM_PROMPT}  # cacheable prefix
     assert "It is $4.50." in with_wiki[1]["content"] and with_wiki[1]["content"].endswith("Question: JFK fee?")
+
+
+def test_tool_calls_must_name_zones_the_rider_asked_about():
+    from rideapp import assistant as a
+
+    q = "How long from JFK Airport to Times Sq/Theatre District at 5pm on a Friday?"
+    assert a.allow_tool_call("get_model_info", {}, q) == (True, "")
+    assert a.allow_tool_call("predict_duration", {"pickup_zone": "JFK Airport", "dropoff_zone": "times sq/theatre district", "hour": 17,
+                                                   "day_of_week": "friday"}, q)[0]
+    ok, why = a.allow_tool_call("query_zone_stats", {"zone": "Pier 76", "metric": "trip_count"}, q)  # named only by an injected wiki page
+    assert not ok and "Pier 76" in why
+    assert not a.allow_tool_call("delete_everything", {}, q)[0]
+    assert not a.allow_tool_call("predict_duration", {"pickup_zone": "JFK Airport"}, q)[0]  # no dropoff: refused, not guessed
